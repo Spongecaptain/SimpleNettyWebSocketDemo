@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>WebSocket Chat</title>
+</head>
+<style>
+	form {
+		width: 406px;
+		height: 650px;
+		border: 4px solid #98bcde;
+		border-radius: 10px;
+		margin: 0 auto;
+		background-color: #eceff9;
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-around;
+
+	}
+	h3 {
+		color: #92acdc;
+		text-align: center;
+		font-size: 26px;
+	}
+	textarea {
+		resize: none;
+		font-size: 20px;
+		width: 401px;
+		height: 511px;
+	}
+	.msg {
+		width: 324px;
+		height: 40px;
+		text-indent: 10px;
+		font-size: 20px;
+		outline: none;
+	}
+	.btn {
+		width: 140px;
+		height: 46px;
+		background-color: #d8f1f9;
+		border-radius: 6px;
+		border: 1px solid #98bcde;
+		font-size: 18px;
+		color: #92acdc;
+		font-weight: bold;
+	}
+	
+</style>
+<body>
+<script type="text/javascript">
+    //这里用于构建一个 HTML5 WebSocket 实例,相当于一个特殊应用层的 TCP Socket
+    var ws;
+    if (!window.WebSocket) {
+        window.WebSocket = window.MozWebSocket;
+    }
+    if (window.WebSocket) {
+        //这里的端口号根据 Netty 服务器的地址来，协议为 ws，用于说明其基于 WebSocket 协议(基于 TCP 的应用层协议)
+        ws = new WebSocket("ws://localhost:8000");
+        //下面则定义了许多与 Socket 事件相关的回调函数，很容易想到借此可以实现简单的心跳机制(这里实现了简单的心跳机制)
+        //socket 有消息时的回调（生命周期内会调用多次）
+        ws.onmessage = function(event) {
+            //如果有任何消息来，那么无论是心跳还是正常的数据包，那么都说明连接正常，所以不管怎么样都进行重置，并重启定时发送的任务
+            heartCheck.reset().start();
+            if(event.data==="pong"){
+                // var ta = document.getElementById('responseText');
+                // ta.value = ta.value + '\n' + event.data
+                // 心跳包的数据可以在前端什么都不展示，除非出错
+            }else{
+                var ta = document.getElementById('responseText');
+                ta.value = ta.value + '\n' + event.data
+            }
+
+        };
+        //socket 开启状态时的回调（生命周期内只会调用一次，可以用于启动一个心跳线程）
+        ws.onopen = function(event) {
+            var ta = document.getElementById('responseText');
+            ta.value = "连接开启!";
+            heartCheck.reset().start();
+        };
+        //socket 关闭状态时的回调（生命周期内只会调用一次）
+        ws.onclose = function(event) {
+            var ta = document.getElementById('responseText');
+            ta.value = ta.value + "连接被关闭";
+        };
+    } else {
+        alert("你的浏览器不支持 WebSocket！");
+    }
+    //此方法被 登录 按钮调用，登录数据的发送（此方法名可以优化，因为 send 实际上就是发送登录数据包的方法）
+    function send(value) {
+        if (!window.WebSocket) {
+            return;
+        }
+        if (ws.readyState == WebSocket.OPEN) {
+            var message = {
+                type: "login",
+                token: "2222"
+            }
+            ws.send(JSON.stringify(message));
+        } else {
+            alert("连接没有开启.");
+        }
+    }
+    //此方法被 发送给自己 按钮调用，用于发送文本框的文字给服务端，然后示意服务端转发给自己（也可以优化，发送给谁的逻辑可以使用一个方法抽象出来，而不必分两个发送给谁的方法）
+    function sendToMe(value) {
+        if (!window.WebSocket) {
+            return;
+        }
+        if (ws.readyState == WebSocket.OPEN) {
+            var message = {
+                type: "sendMe",
+                value: value,
+                token: "2222"
+            }
+            ws.send(JSON.stringify(message));
+        } else {
+            alert("连接没有开启.");
+        }
+    }
+    //此方法被 发送给某人 按钮调用，用于发送文本框的文字给服务端，然后示意服务端转发给他人
+    function sendToOne(value) {
+        if (!window.WebSocket) {
+            return;
+        }
+        if (ws.readyState == WebSocket.OPEN) {
+            var message = {
+                type : "sendTo",
+                token : "2222",
+                value: value,
+                one: "1111",
+            }
+            ws.send(JSON.stringify(message));
+        } else {
+            alert("连接没有开启.");
+        }
+    }
+    //此方法被 send 按钮调用，用于发送文本框的文字给服务端，然后示意服务端转发给群里的所有用户
+    function sendGroup(value) {
+        if (!window.WebSocket) {
+            return;
+        }
+        if (ws.readyState == WebSocket.OPEN) {
+            var message = {
+                type: "sendGroup",
+                groupId: "2",
+                token: "2222",
+                value: value
+            }
+            ws.send(JSON.stringify(message));
+        } else {
+            alert("连接没有开启.");
+        }
+    }
+    //心跳检测线程
+    var heartCheck = {
+        timeout: 2000,        //2 秒
+        timeoutObj: null,
+        serverTimeoutObj: null,
+        reset: function(){
+            clearTimeout(this.timeoutObj);
+            clearTimeout(this.serverTimeoutObj);
+            return this;
+        },
+        start: function(){
+            var self = this;
+            this.timeoutObj = setTimeout(function(){
+                //这里发送一个心跳，后端收到后，返回一个心跳消息，
+                //onmessage拿到返回的心跳就说明连接正常
+                ws.send("ping");
+                console.log("ping!")
+                self.serverTimeoutObj = setTimeout(function(){//如果超过一定时间还没重置，说明后端主动断开了
+                    ws.close();//如果onclose会执行reconnect，我们执行ws.close()就行了.如果直接执行reconnect 会触发onclose导致重连两次
+                    alert("连接超时，请刷新页面重试！");
+                }, self.timeout)
+            }, this.timeout)
+        }
+    }
+
+    window.onbeforeunload = function(event) {
+        event.returnValue = "刷新提醒";
+    };
+</script>
+<form onsubmit="return false;">
+    <h3>聊天室 Demo</h3>
+    <textarea id="responseText"></textarea>
+    <br>
+    <input class='msg' type="text" name="message" placeholder='发送消息' value="">
+    <input class='btn' type="button" value="登录" onclick="send(this.form.message.value)">
+    <input class='btn' type="button" value="发送给自己" onclick="sendToMe(this.form.message.value)">
+    <input class='btn' type="button" value="发送给某人" onclick="sendToOne(this.form.message.value)">
+    <input class='btn' type="button" value="发送到群组" onclick="sendGroup(this.form.message.value)">
+</form>
+<br>
+<br>
+</body>
+</html>
